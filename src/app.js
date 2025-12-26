@@ -47,7 +47,7 @@ async function init() {
         })
     } catch (error) {
         hideLoading();
-        console.error('初始化错误：', error);
+        console.error('initialize error:', error);
     }
 }
 
@@ -112,13 +112,20 @@ function handleFiles(files) {
 
     if (validFiles.length === 0) return;
 
+    imageQueue.forEach(item => {
+        if (item.originalUrl) URL.revokeObjectURL(item.originalUrl);
+        if (item.processedUrl) URL.revokeObjectURL(item.processedUrl);
+    });
+
     imageQueue = validFiles.map((file, index) => ({
         id: Date.now() + index,
         file,
         name: file.name,
         status: 'pending',
         originalImg: null,
-        processedBlob: null
+        processedBlob: null,
+        originalUrl: null,
+        processedUrl: null
     }));
 
     processedCount = 0;
@@ -160,7 +167,8 @@ async function processSingle(item) {
         const blob = await new Promise(resolve => result.toBlob(resolve, 'image/png'));
         item.processedBlob = blob;
 
-        processedImage.src = URL.createObjectURL(blob);
+        item.processedUrl = URL.createObjectURL(blob);
+        processedImage.src = item.processedUrl;
         processedSection.style.display = 'block';
         downloadBtn.style.display = 'flex';
         downloadBtn.onclick = () => downloadImage(item);
@@ -203,47 +211,57 @@ function createImageCard(item) {
 }
 
 async function processQueue() {
-    for (const item of imageQueue) {
+    await Promise.all(imageQueue.map(async item => {
         const img = await loadImage(item.file);
         item.originalImg = img;
+        item.originalUrl = img.src;
         document.getElementById(`result-${item.id}`).src = img.src;
         zoom.attach(`#result-${item.id}`);
-    }
+    }));
 
-    for (const item of imageQueue) {
-        if (item.status !== 'pending') continue;
+    const concurrency = 3;
+    for (let i = 0; i < imageQueue.length; i += concurrency) {
+        await Promise.all(imageQueue.slice(i, i + concurrency).map(async item => {
+            if (item.status !== 'pending') return;
 
-        item.status = 'processing';
-        updateStatus(item.id, i18n.t('status.processing'));
+            item.status = 'processing';
+            updateStatus(item.id, i18n.t('status.processing'));
 
-        try {
-            const result = await engine.removeWatermarkFromImage(item.originalImg);
-            const blob = await new Promise(resolve => result.toBlob(resolve, 'image/png'));
-            item.processedBlob = blob;
+            try {
+                const result = await engine.removeWatermarkFromImage(item.originalImg);
+                const blob = await new Promise(resolve => result.toBlob(resolve, 'image/png'));
+                item.processedBlob = blob;
 
-            document.getElementById(`result-${item.id}`).src = URL.createObjectURL(blob);
+                item.processedUrl = URL.createObjectURL(blob);
+                document.getElementById(`result-${item.id}`).src = item.processedUrl;
 
-            item.status = 'completed';
-            const watermarkInfo = engine.getWatermarkInfo(item.originalImg.width, item.originalImg.height);
-            const { is_google, is_original } = await checkOriginal(item.originalImg);
-            const originalStatus = getOriginalStatus({ is_google, is_original });
+                item.status = 'completed';
+                const watermarkInfo = engine.getWatermarkInfo(item.originalImg.width, item.originalImg.height);
 
-            updateStatus(item.id, `<p>${i18n.t('info.size')}: ${item.originalImg.width}×${item.originalImg.height}</p>
+                updateStatus(item.id, `<p>${i18n.t('info.size')}: ${item.originalImg.width}×${item.originalImg.height}</p>
             <p>${i18n.t('info.watermark')}: ${watermarkInfo.size}×${watermarkInfo.size}</p>
-            <p>${i18n.t('info.position')}: (${watermarkInfo.position.x},${watermarkInfo.position.y})</p>
-            <p class="inline-block mt-1 text-xs md:text-sm ${is_google && is_original ? 'hidden' : 'text-warn'}">${originalStatus}</p>`, true);
+            <p>${i18n.t('info.position')}: (${watermarkInfo.position.x},${watermarkInfo.position.y})</p>`, true);
 
-            const downloadBtn = document.getElementById(`download-${item.id}`);
-            downloadBtn.classList.remove('hidden');
-            downloadBtn.onclick = () => downloadImage(item);
+                const downloadBtn = document.getElementById(`download-${item.id}`);
+                downloadBtn.classList.remove('hidden');
+                downloadBtn.onclick = () => downloadImage(item);
 
-            processedCount++;
-            updateProgress();
-        } catch (error) {
-            item.status = 'error';
-            updateStatus(item.id, i18n.t('status.failed'));
-            console.error(error);
-        }
+                processedCount++;
+                updateProgress();
+
+                checkOriginal(item.originalImg).then(({ is_google, is_original }) => {
+                    if (!is_google || !is_original) {
+                        const status = getOriginalStatus({ is_google, is_original });
+                        const statusEl = document.getElementById(`status-${item.id}`);
+                        if (statusEl) statusEl.innerHTML += `<p class="inline-block mt-1 text-xs md:text-sm text-warn">${status}</p>`;
+                    }
+                }).catch(() => {});
+            } catch (error) {
+                item.status = 'error';
+                updateStatus(item.id, i18n.t('status.failed'));
+                console.error(error);
+            }
+        }));
     }
 
     if (processedCount > 0) {
@@ -268,7 +286,7 @@ function updateDynamicTexts() {
 
 function downloadImage(item) {
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(item.processedBlob);
+    a.href = item.processedUrl;
     a.download = `unwatermarked_${item.name.replace(/\.[^.]+$/, '')}.png`;
     a.click();
 }
