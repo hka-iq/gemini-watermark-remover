@@ -1,4 +1,5 @@
 import { WatermarkEngine } from './core/watermarkEngine.js';
+import { removeWatermarkFromVideo } from './core/videoProcessor.js';
 import i18n from './i18n.js';
 import { loadImage, checkOriginal, getOriginalStatus, setStatusMessage, showLoading, hideLoading } from './utils.js';
 import JSZip from 'jszip';
@@ -19,12 +20,17 @@ const imageList = document.getElementById('imageList');
 const progressText = document.getElementById('progressText');
 const downloadAllBtn = document.getElementById('downloadAllBtn');
 const originalImage = document.getElementById('originalImage');
+const originalVideo = document.getElementById('originalVideo');
 const processedSection = document.getElementById('processedSection');
 const processedImage = document.getElementById('processedImage');
+const processedVideo = document.getElementById('processedVideo');
 const originalInfo = document.getElementById('originalInfo');
 const processedInfo = document.getElementById('processedInfo');
 const downloadBtn = document.getElementById('downloadBtn');
 const resetBtn = document.getElementById('resetBtn');
+const videoProgressContainer = document.getElementById('videoProgressContainer');
+const videoProgressBar = document.getElementById('videoProgressBar');
+const videoProgressPercent = document.getElementById('videoProgressPercent');
 
 /**
  * initialize the application
@@ -97,6 +103,13 @@ function reset() {
     imageQueue = [];
     processedCount = 0;
     fileInput.value = '';
+    originalImage.style.display = '';
+    originalVideo.style.display = 'none';
+    originalVideo.src = '';
+    processedImage.style.display = '';
+    processedVideo.style.display = 'none';
+    processedVideo.src = '';
+    videoProgressContainer.style.display = 'none';
 }
 
 function handleFileSelect(e) {
@@ -105,9 +118,13 @@ function handleFileSelect(e) {
 
 function handleFiles(files) {
     const validFiles = files.filter(file => {
-        if (!file.type.match('image/(jpeg|png|webp)')) return false;
-        if (file.size > 20 * 1024 * 1024) return false;
-        return true;
+        if (file.type.match('image/(jpeg|png|webp)')) {
+            return file.size <= 20 * 1024 * 1024;
+        }
+        if (file.type.match('video/(mp4|webm|quicktime)') || file.name.match(/\.(mp4|webm|mov)$/i)) {
+            return file.size <= 500 * 1024 * 1024;
+        }
+        return false;
     });
 
     if (validFiles.length === 0) return;
@@ -121,6 +138,7 @@ function handleFiles(files) {
         id: Date.now() + index,
         file,
         name: file.name,
+        isVideo: file.type.startsWith('video/') || file.name.match(/\.(mp4|webm|mov)$/i) !== null,
         status: 'pending',
         originalImg: null,
         processedBlob: null,
@@ -147,6 +165,18 @@ function handleFiles(files) {
 
 async function processSingle(item) {
     try {
+        if (item.isVideo) {
+            await processSingleVideo(item);
+        } else {
+            await processSingleImage(item);
+        }
+    } catch (error) {
+        console.error(error);
+    }
+}
+
+async function processSingleImage(item) {
+    try {
         const img = await loadImage(item.file);
         item.originalImg = img;
 
@@ -154,6 +184,8 @@ async function processSingle(item) {
         const status = getOriginalStatus({ is_google, is_original });
         setStatusMessage(status, is_google && is_original ? 'success' : 'warn');
 
+        originalImage.style.display = '';
+        originalVideo.style.display = 'none';
         originalImage.src = img.src;
 
         const watermarkInfo = engine.getWatermarkInfo(img.width, img.height);
@@ -168,10 +200,12 @@ async function processSingle(item) {
         item.processedBlob = blob;
 
         item.processedUrl = URL.createObjectURL(blob);
+        processedImage.style.display = '';
+        processedVideo.style.display = 'none';
         processedImage.src = item.processedUrl;
         processedSection.style.display = 'block';
         downloadBtn.style.display = 'flex';
-        downloadBtn.onclick = () => downloadImage(item);
+        downloadBtn.onclick = () => downloadMedia(item);
 
         processedInfo.innerHTML = `
             <p>${i18n.t('info.size')}: ${img.width}×${img.height}</p>
@@ -183,6 +217,51 @@ async function processSingle(item) {
 
         processedSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
     } catch (error) {
+        console.error(error);
+    }
+}
+
+async function processSingleVideo(item) {
+    try {
+        const videoUrl = URL.createObjectURL(item.file);
+        item.originalUrl = videoUrl;
+
+        originalVideo.style.display = '';
+        originalImage.style.display = 'none';
+        originalVideo.src = videoUrl;
+
+        originalInfo.innerHTML = `<p>${item.name}</p>`;
+
+        // Show progress bar
+        videoProgressContainer.style.display = 'block';
+        videoProgressBar.style.width = '0%';
+        videoProgressPercent.textContent = '0%';
+        downloadBtn.style.display = 'none';
+
+        const onProgress = (pct) => {
+            videoProgressBar.style.width = `${pct}%`;
+            videoProgressPercent.textContent = `${pct}%`;
+        };
+
+        const blob = await removeWatermarkFromVideo(item.file, engine, onProgress);
+        item.processedBlob = blob;
+        item.processedUrl = URL.createObjectURL(blob);
+
+        processedVideo.style.display = '';
+        processedImage.style.display = 'none';
+        processedVideo.src = item.processedUrl;
+        processedSection.style.display = 'block';
+        downloadBtn.style.display = 'flex';
+        downloadBtn.onclick = () => downloadMedia(item);
+
+        processedInfo.innerHTML = `
+            <p>${i18n.t('info.status')}: ${i18n.t('video.processed')}</p>
+        `;
+
+        videoProgressContainer.style.display = 'none';
+        processedSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (error) {
+        videoProgressContainer.style.display = 'none';
         console.error(error);
     }
 }
@@ -212,11 +291,27 @@ function createImageCard(item) {
 
 async function processQueue() {
     await Promise.all(imageQueue.map(async item => {
-        const img = await loadImage(item.file);
-        item.originalImg = img;
-        item.originalUrl = img.src;
-        document.getElementById(`result-${item.id}`).src = img.src;
-        zoom.attach(`#result-${item.id}`);
+        if (item.isVideo) {
+            const videoUrl = URL.createObjectURL(item.file);
+            item.originalUrl = videoUrl;
+            const thumb = document.getElementById(`result-${item.id}`);
+            if (thumb) {
+                const videoEl = document.createElement('video');
+                videoEl.id = `result-${item.id}`;
+                videoEl.src = videoUrl;
+                videoEl.className = thumb.className;
+                videoEl.muted = true;
+                videoEl.style.maxWidth = '100%';
+                videoEl.style.maxHeight = '6rem';
+                thumb.replaceWith(videoEl);
+            }
+        } else {
+            const img = await loadImage(item.file);
+            item.originalImg = img;
+            item.originalUrl = img.src;
+            document.getElementById(`result-${item.id}`).src = img.src;
+            zoom.attach(`#result-${item.id}`);
+        }
     }));
 
     const concurrency = 3;
@@ -228,34 +323,48 @@ async function processQueue() {
             updateStatus(item.id, i18n.t('status.processing'));
 
             try {
-                const result = await engine.removeWatermarkFromImage(item.originalImg);
-                const blob = await new Promise(resolve => result.toBlob(resolve, 'image/png'));
-                item.processedBlob = blob;
+                if (item.isVideo) {
+                    const blob = await removeWatermarkFromVideo(item.file, engine, (pct) => {
+                        updateStatus(item.id, `${i18n.t('video.processing')} ${pct}%`);
+                    });
+                    item.processedBlob = blob;
+                    item.processedUrl = URL.createObjectURL(blob);
 
-                item.processedUrl = URL.createObjectURL(blob);
-                document.getElementById(`result-${item.id}`).src = item.processedUrl;
+                    const resultEl = document.getElementById(`result-${item.id}`);
+                    if (resultEl) resultEl.src = item.processedUrl;
 
-                item.status = 'completed';
-                const watermarkInfo = engine.getWatermarkInfo(item.originalImg.width, item.originalImg.height);
+                    item.status = 'completed';
+                    updateStatus(item.id, i18n.t('video.processed'), false);
+                } else {
+                    const result = await engine.removeWatermarkFromImage(item.originalImg);
+                    const blob = await new Promise(resolve => result.toBlob(resolve, 'image/png'));
+                    item.processedBlob = blob;
 
-                updateStatus(item.id, `<p>${i18n.t('info.size')}: ${item.originalImg.width}×${item.originalImg.height}</p>
+                    item.processedUrl = URL.createObjectURL(blob);
+                    document.getElementById(`result-${item.id}`).src = item.processedUrl;
+
+                    item.status = 'completed';
+                    const watermarkInfo = engine.getWatermarkInfo(item.originalImg.width, item.originalImg.height);
+
+                    updateStatus(item.id, `<p>${i18n.t('info.size')}: ${item.originalImg.width}×${item.originalImg.height}</p>
             <p>${i18n.t('info.watermark')}: ${watermarkInfo.size}×${watermarkInfo.size}</p>
             <p>${i18n.t('info.position')}: (${watermarkInfo.position.x},${watermarkInfo.position.y})</p>`, true);
 
-                const downloadBtn = document.getElementById(`download-${item.id}`);
-                downloadBtn.classList.remove('hidden');
-                downloadBtn.onclick = () => downloadImage(item);
+                    checkOriginal(item.originalImg).then(({ is_google, is_original }) => {
+                        if (!is_google || !is_original) {
+                            const status = getOriginalStatus({ is_google, is_original });
+                            const statusEl = document.getElementById(`status-${item.id}`);
+                            if (statusEl) statusEl.innerHTML += `<p class="inline-block mt-1 text-xs md:text-sm text-warn">${status}</p>`;
+                        }
+                    }).catch(() => {});
+                }
+
+                const downloadBtnEl = document.getElementById(`download-${item.id}`);
+                downloadBtnEl.classList.remove('hidden');
+                downloadBtnEl.onclick = () => downloadMedia(item);
 
                 processedCount++;
                 updateProgress();
-
-                checkOriginal(item.originalImg).then(({ is_google, is_original }) => {
-                    if (!is_google || !is_original) {
-                        const status = getOriginalStatus({ is_google, is_original });
-                        const statusEl = document.getElementById(`status-${item.id}`);
-                        if (statusEl) statusEl.innerHTML += `<p class="inline-block mt-1 text-xs md:text-sm text-warn">${status}</p>`;
-                    }
-                }).catch(() => {});
             } catch (error) {
                 item.status = 'error';
                 updateStatus(item.id, i18n.t('status.failed'));
@@ -284,10 +393,11 @@ function updateDynamicTexts() {
     }
 }
 
-function downloadImage(item) {
+function downloadMedia(item) {
     const a = document.createElement('a');
     a.href = item.processedUrl;
-    a.download = `unwatermarked_${item.name.replace(/\.[^.]+$/, '')}.png`;
+    const ext = item.isVideo ? 'webm' : 'png';
+    a.download = `unwatermarked_${item.name.replace(/\.[^.]+$/, '')}.${ext}`;
     a.click();
 }
 
@@ -297,7 +407,8 @@ async function downloadAll() {
 
     const zip = new JSZip();
     completed.forEach(item => {
-        const filename = `unwatermarked_${item.name.replace(/\.[^.]+$/, '')}.png`;
+        const ext = item.isVideo ? 'webm' : 'png';
+        const filename = `unwatermarked_${item.name.replace(/\.[^.]+$/, '')}.${ext}`;
         zip.file(filename, item.processedBlob);
     });
 

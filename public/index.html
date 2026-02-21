@@ -120,7 +120,7 @@
             <p class="mb-2 text-lg font-medium text-gray-700" data-i18n="upload.text">点击选择 或 拖拽图片至此</p>
             <p class="text-sm text-gray-400" data-i18n="upload.hint">支持 JPG, PNG, WebP</p>
           </div>
-          <input type="file" id="fileInput" accept="image/jpeg,image/png,image/webp" multiple class="hidden" />
+          <input type="file" id="fileInput" accept="image/jpeg,image/png,image/webp,video/mp4,video/webm,video/*" multiple class="hidden" />
         </div>
       </div>
     </section>
@@ -153,6 +153,7 @@
               <span id="originalInfo" class="text-xs text-gray-400 font-mono"></span>
             </div>
             <div class="h-[200px] md:h-[500px] p-4 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMCIgaGVpZ2h0PSIyMCIgZmlsbD0iI2Y5ZmRmZCI+PHJlY3Qgd2lkdGg9IjEwIiBoZWlnaHQ9IjEwIiBmaWxsPSIjZjJmMmYyIi8+PHJlY3QgeD0iMTAiIHk9IjEwIiB3aWR0aD0iMTAiIGhlaWdodD0iMTAiIGZpbGw9IiNmMmYyZjIiLz48L3N2Zz4=')]">
+              <video id="originalVideo" class="max-w-full max-h-full mx-auto rounded-lg shadow-sm block" controls style="display:none;"></video>
               <img id="originalImage" class="max-w-full max-h-full mx-auto rounded-lg shadow-sm block" data-zoomable />
             </div>
           </div>
@@ -165,6 +166,7 @@
               <span id="processedInfo" class="text-xs text-emerald-600 font-mono"></span>
             </div>
             <div class="h-[200px] md:h-[500px] p-4 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMCIgaGVpZ2h0PSIyMCIgZmlsbD0iI2Y5ZmRmZCI+PHJlY3Qgd2lkdGg9IjEwIiBoZWlnaHQ9IjEwIiBmaWxsPSIjZjJmMmYyIi8+PHJlY3QgeD0iMTAiIHk9IjEwIiB3aWR0aD0iMTAiIGhlaWdodD0iMTAiIGZpbGw9IiNmMmYyZjIiLz48L3N2Zz4=')]">
+              <video id="processedVideo" class="max-w-full max-h-full mx-auto rounded-lg shadow-sm block" controls style="display:none;"></video>
               <img id="processedImage" class="max-w-full max-h-full mx-auto rounded-lg shadow-sm block" data-zoomable />
             </div>
           </div>
@@ -184,6 +186,16 @@
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
                 <span data-i18n="btn.reset">重置 / 更换图片</span>
               </button>
+            </div>
+
+            <div id="videoProgressContainer" class="mt-4" style="display:none;">
+              <div class="flex justify-between text-xs text-gray-500 mb-1">
+                <span data-i18n="video.processing">Processing video frames...</span>
+                <span id="videoProgressPercent">0%</span>
+              </div>
+              <div class="w-full bg-gray-200 rounded-full h-2">
+                <div id="videoProgressBar" class="bg-primary h-2 rounded-full transition-all" style="width:0%"></div>
+              </div>
             </div>
 
             <div id="statusMessage" class="mt-6 text-sm text-gray-500 min-h-[1.25rem]"></div>
