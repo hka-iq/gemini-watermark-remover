@@ -115,14 +115,16 @@ export class WatermarkEngine {
 
     /**
      * Remove watermark from image based on watermark size
-     * @param {HTMLImageElement|HTMLCanvasElement} image - Input image
+     * @param {HTMLImageElement|HTMLCanvasElement|HTMLVideoElement} image - Input image/frame
      * @returns {Promise<HTMLCanvasElement>} Processed canvas
      */
     async removeWatermarkFromImage(image) {
         // Create canvas to process image
         const canvas = document.createElement('canvas');
-        canvas.width = image.width;
-        canvas.height = image.height;
+        const w = image.videoWidth || image.width;
+        const h = image.videoHeight || image.height;
+        canvas.width = w;
+        canvas.height = h;
         const ctx = canvas.getContext('2d');
 
         // Draw original image onto canvas
